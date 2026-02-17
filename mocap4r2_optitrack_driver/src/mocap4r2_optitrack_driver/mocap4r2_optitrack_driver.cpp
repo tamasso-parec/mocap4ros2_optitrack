@@ -123,9 +123,10 @@ std::chrono::nanoseconds OptitrackDriverNode::get_optitrack_system_latency(sFram
 void
 OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
 {
-  if (get_current_state().id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
-    return;
-  }
+
+  // if (get_current_state().id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
+  //   return;
+  // }
 
   frame_number_++;
   rclcpp::Duration frame_delay = rclcpp::Duration(get_optitrack_system_latency(data));
@@ -140,6 +141,8 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
     msg.frame_number = frame_number_;
 
     for (int i = 0; i < data->nLabeledMarkers; i++) {
+      // std::cout << "Marker " << i << ": " << data->LabeledMarkers[i].x << ", " <<
+      //   data->LabeledMarkers[i].y << ", " << data->LabeledMarkers[i].z << std::endl;
       bool Unlabeled = ((data->LabeledMarkers[i].params & 0x10) != 0);
       bool ActiveMarker = ((data->LabeledMarkers[i].params & 0x20) != 0);
       sMarker & marker_data = data->LabeledMarkers[i];
@@ -169,6 +172,9 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
 
     for (int i = 0; i < data->nRigidBodies; i++) {
       mocap4r2_msgs::msg::RigidBody rb;
+
+      std::cout << "RigidBody " << i << " name " << data->RigidBodies[i].ID << ": " << data->RigidBodies[i].x << ", " <<
+        data->RigidBodies[i].y << ", " << data->RigidBodies[i].z << std::endl;
 
       rb.rigid_body_name = std::to_string(data->RigidBodies[i].ID);
       rb.pose.position.x = data->RigidBodies[i].x;

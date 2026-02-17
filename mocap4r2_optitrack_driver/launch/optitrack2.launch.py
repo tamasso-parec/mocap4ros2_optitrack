@@ -29,20 +29,35 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import LifecycleNode
 from launch_ros.events.lifecycle import ChangeState
 
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import PathJoinSubstitution, TextSubstitution
+
+from launch_ros.substitutions import FindPackageShare
+
 import lifecycle_msgs.msg
 
 
 def generate_launch_description():
 
-    params_file_path = os.path.join(get_package_share_directory(
-      'mocap4r2_optitrack_driver'), 'config', 'mocap4r2_optitrack_driver_params.yaml')
+    config_file = LaunchConfiguration('config_file')
+
+    config_file_launch = DeclareLaunchArgument(
+		'config_file', default_value='mocap4r2_optitrack_driver_params.yaml'
+	)
+
+    optitrack_driver_pkg_share = FindPackageShare('mocap4r2_optitrack_driver')
+
+    params_file_path = PathJoinSubstitution(
+                [
+                    optitrack_driver_pkg_share,
+                    'config',
+                    config_file
+                ]
+                )
 
     stdout_linebuf_envvar = SetEnvironmentVariable(
         'RCUTILS_CONSOLE_STDOUT_LINE_BUFFERED', '1')
 
-    # print('')
-    # print('params_file_path: ', params_file_path)
-    # print('')
 
     driver_node = LifecycleNode(
         name='mocap4r2_optitrack_driver_node',
@@ -50,7 +65,7 @@ def generate_launch_description():
         package='mocap4r2_optitrack_driver',
         executable='mocap4r2_optitrack_driver_main',
         output='screen',
-        parameters=[LaunchConfiguration('config_file')],
+        parameters=[params_file_path],
     )
 
     # Make the driver node take the 'configure' transition
@@ -62,21 +77,20 @@ def generate_launch_description():
     )
 
     # Make the driver node take the 'activate' transition
-    # driver_activate_trans_event = EmitEvent(
-    #    event = ChangeState(
-    #        lifecycle_node_matcher = launch.events.matchers.matches_action(driver_node),
-    #        transition_id = lifecycle_msgs.msg.Transition.TRANSITION_ACTIVATE,
-    #     )
-    # )
+    driver_activate_trans_event = EmitEvent(
+       event = ChangeState(
+           lifecycle_node_matcher = launch.events.matchers.matches_action(driver_node),
+           transition_id = lifecycle_msgs.msg.Transition.TRANSITION_ACTIVATE,
+        )
+    )
 
     # Create the launch description and populate
     ld = LaunchDescription()
 
     ld.add_action(stdout_linebuf_envvar)
-    ld.add_action(DeclareLaunchArgument('namespace', default_value=''))
-    ld.add_action(DeclareLaunchArgument('config_file', default_value=params_file_path))
+    ld.add_action(config_file_launch)
     ld.add_action(driver_node)
     ld.add_action(driver_configure_trans_event)
-    # ld.add_action(driver_activate_trans_event)
+    ld.add_action(driver_activate_trans_event)
 
     return ld

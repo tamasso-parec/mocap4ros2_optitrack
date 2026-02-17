@@ -173,8 +173,8 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
     for (int i = 0; i < data->nRigidBodies; i++) {
       mocap4r2_msgs::msg::RigidBody rb;
 
-      std::cout << "RigidBody " << i << " name " << data->RigidBodies[i].ID << ": " << data->RigidBodies[i].x << ", " <<
-        data->RigidBodies[i].y << ", " << data->RigidBodies[i].z << std::endl;
+      // std::cout << "RigidBody " << i << " name " << data->RigidBodies[i].ID << ": " << data->RigidBodies[i].x << ", " <<
+      //   data->RigidBodies[i].y << ", " << data->RigidBodies[i].z << std::endl;
 
       rb.rigid_body_name = std::to_string(data->RigidBodies[i].ID);
       rb.pose.position.x = data->RigidBodies[i].x;

@@ -82,6 +82,11 @@ install(TARGETS
   RUNTIME DESTINATION bin
 )
 
+install(FILES ${LIBNATNET_SDK_LIBRARY}
+  DESTINATION lib
+)
+
+
 
 if(BUILD_TESTING)
   find_package(ament_cmake_copyright REQUIRED)

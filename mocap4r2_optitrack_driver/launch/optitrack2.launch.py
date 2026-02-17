@@ -45,6 +45,11 @@ def generate_launch_description():
 		'config_file', default_value='mocap4r2_optitrack_driver_params.yaml'
 	)
 
+    namespace = LaunchConfiguration("namespace", default="")
+
+    namespace_launch_arg = DeclareLaunchArgument(
+        'namespace', default_value='')
+
     optitrack_driver_pkg_share = FindPackageShare('mocap4r2_optitrack_driver')
 
     params_file_path = PathJoinSubstitution(
@@ -61,7 +66,7 @@ def generate_launch_description():
 
     driver_node = LifecycleNode(
         name='mocap4r2_optitrack_driver_node',
-        namespace=LaunchConfiguration('namespace'),
+        namespace=namespace,
         package='mocap4r2_optitrack_driver',
         executable='mocap4r2_optitrack_driver_main',
         output='screen',
@@ -86,6 +91,8 @@ def generate_launch_description():
 
     # Create the launch description and populate
     ld = LaunchDescription()
+
+    ld.add_action(namespace_launch_arg)
 
     ld.add_action(stdout_linebuf_envvar)
     ld.add_action(config_file_launch)

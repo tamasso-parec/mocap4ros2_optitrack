@@ -24,6 +24,7 @@
 #include <iostream>
 #include <sstream>
 #include <map>
+#include <mutex>
 #include <string>
 #include <memory>
 #include <chrono>
@@ -95,6 +96,8 @@ protected:
   sNatNetClientConnectParams client_params;
   sServerDescription server_description;
   sDataDescriptions * data_descriptions{nullptr};
+  std::map<std::string, int> rigid_body_ids_by_name_;
+  std::mutex rigid_body_ids_mutex_;
   sFrameOfMocapData latest_data;
   sRigidBodyData latest_body_frame_data;
 

@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <utility>
 
 #include "mocap4r2_msgs/msg/marker.hpp"
 #include "mocap4r2_msgs/msg/markers.hpp"
@@ -123,7 +124,6 @@ std::chrono::nanoseconds OptitrackDriverNode::get_optitrack_system_latency(sFram
 void
 OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
 {
-
   // if (get_current_state().id() != lifecycle_msgs::msg::State::PRIMARY_STATE_ACTIVE) {
   //   return;
   // }
@@ -133,35 +133,71 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
 
   std::map<int, std::vector<mocap4r2_msgs::msg::Marker>> marker2rb;
 
-  // Markers
-  if (mocap4r2_markers_pub_->get_subscription_count() > 0) {
-    mocap4r2_msgs::msg::Markers msg;
-    msg.header.stamp = now() - frame_delay;
-    msg.header.frame_id = "map";
-    msg.frame_number = frame_number_;
+  mocap4r2_msgs::msg::Markers markers_msg;
+  markers_msg.header.stamp = now() - frame_delay;
+  markers_msg.header.frame_id = "map";
+  markers_msg.frame_number = frame_number_;
 
-    for (int i = 0; i < data->nLabeledMarkers; i++) {
-      // std::cout << "Marker " << i << ": " << data->LabeledMarkers[i].x << ", " <<
-      //   data->LabeledMarkers[i].y << ", " << data->LabeledMarkers[i].z << std::endl;
-      bool Unlabeled = ((data->LabeledMarkers[i].params & 0x10) != 0);
-      bool ActiveMarker = ((data->LabeledMarkers[i].params & 0x20) != 0);
-      sMarker & marker_data = data->LabeledMarkers[i];
-      int modelID, markerID;
-      NatNet_DecodeID(marker_data.ID, &modelID, &markerID);
+  for (int i = 0; i < data->nLabeledMarkers; i++) {
+    const sMarker & marker_data = data->LabeledMarkers[i];
+    int model_id;
+    int marker_id;
+    NatNet_DecodeID(marker_data.ID, &model_id, &marker_id);
 
+    mocap4r2_msgs::msg::Marker marker;
+    marker.id_type = mocap4r2_msgs::msg::Marker::USE_INDEX;
+    marker.marker_index = i;
+    marker.translation.x = marker_data.x;
+    marker.translation.y = marker_data.y;
+    marker.translation.z = marker_data.z;
+    markers_msg.markers.push_back(marker);
+
+    if (model_id != 0) {
+      marker2rb[model_id].push_back(marker);
+    }
+  }
+
+  // Older NatNet servers may expose only positional "other markers".
+  if (data->nLabeledMarkers == 0) {
+    for (int i = 0; i < data->nOtherMarkers; i++) {
       mocap4r2_msgs::msg::Marker marker;
       marker.id_type = mocap4r2_msgs::msg::Marker::USE_INDEX;
       marker.marker_index = i;
-      marker.translation.x = marker_data.x;
-      marker.translation.y = marker_data.y;
-      marker.translation.z = marker_data.z;
-      if (ActiveMarker || Unlabeled) {
-        msg.markers.push_back(marker);
-      } else {
-        marker2rb[modelID].push_back(marker);
-      }
+      marker.translation.x = data->OtherMarkers[i][0];
+      marker.translation.y = data->OtherMarkers[i][1];
+      marker.translation.z = data->OtherMarkers[i][2];
+      markers_msg.markers.push_back(marker);
     }
-    mocap4r2_markers_pub_->publish(msg);
+  }
+
+  std::map<std::string, int> rigid_body_ids_by_name;
+  {
+    std::lock_guard<std::mutex> lock(rigid_body_ids_mutex_);
+    rigid_body_ids_by_name = rigid_body_ids_by_name_;
+  }
+  for (int i = 0; i < data->nMarkerSets; i++) {
+    const sMarkerSetData & marker_set = data->MocapData[i];
+    const auto rigid_body = rigid_body_ids_by_name.find(marker_set.szName);
+    if (rigid_body == rigid_body_ids_by_name.end()) {
+      continue;
+    }
+
+    auto & markers = marker2rb[rigid_body->second];
+    markers.clear();
+    markers.reserve(marker_set.nMarkers);
+    for (int j = 0; j < marker_set.nMarkers; j++) {
+      mocap4r2_msgs::msg::Marker marker;
+      marker.id_type = mocap4r2_msgs::msg::Marker::USE_INDEX;
+      marker.marker_index = j;
+      marker.translation.x = marker_set.Markers[j][0];
+      marker.translation.y = marker_set.Markers[j][1];
+      marker.translation.z = marker_set.Markers[j][2];
+      markers.push_back(marker);
+    }
+  }
+
+  if (mocap4r2_markers_pub_->get_subscription_count() > 0) {
+    mocap4r2_markers_pub_->publish(markers_msg);
   }
 
   if (mocap4r2_rigid_body_pub_->get_subscription_count() > 0) {
@@ -171,10 +207,13 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
     msg_rb.frame_number = frame_number_;
 
     for (int i = 0; i < data->nRigidBodies; i++) {
+      // NatNet bit 0 means that Motive successfully tracked this body in this
+      // frame. Omitting an invalid body makes downstream pose streams go stale
+      // instead of forwarding Motive's last or unsolved estimate.
+      if ((data->RigidBodies[i].params & 0x01) == 0) {
+        continue;
+      }
       mocap4r2_msgs::msg::RigidBody rb;
-
-      // std::cout << "RigidBody " << i << " name " << data->RigidBodies[i].ID << ": " << data->RigidBodies[i].x << ", " <<
-      //   data->RigidBodies[i].y << ", " << data->RigidBodies[i].z << std::endl;
 
       rb.rigid_body_name = std::to_string(data->RigidBodies[i].ID);
       rb.pose.position.x = data->RigidBodies[i].x;
@@ -300,6 +339,17 @@ OptitrackDriverNode::connect_optitrack()
 
     if (client->GetDataDescriptionList(&data_descriptions) != ErrorCode_OK || !data_descriptions) {
       RCLCPP_DEBUG(get_logger(), "[Client] Unable to retrieve Data Descriptions.\n");
+    } else {
+      std::map<std::string, int> rigid_body_ids_by_name;
+      for (int i = 0; i < data_descriptions->nDataDescriptions; i++) {
+        const sDataDescription & description = data_descriptions->arrDataDescriptions[i];
+        if (description.type == Descriptor_RigidBody && description.Data.RigidBodyDescription) {
+          rigid_body_ids_by_name[description.Data.RigidBodyDescription->szName] =
+            description.Data.RigidBodyDescription->ID;
+        }
+      }
+      std::lock_guard<std::mutex> lock(rigid_body_ids_mutex_);
+      rigid_body_ids_by_name_ = std::move(rigid_body_ids_by_name);
     }
 
     RCLCPP_INFO(get_logger(), "\n[Client] Server application info:\n");

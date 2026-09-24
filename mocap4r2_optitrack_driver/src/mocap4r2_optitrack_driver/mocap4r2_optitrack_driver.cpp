@@ -207,6 +207,12 @@ OptitrackDriverNode::process_frame(sFrameOfMocapData * data)
     msg_rb.frame_number = frame_number_;
 
     for (int i = 0; i < data->nRigidBodies; i++) {
+      // NatNet bit 0 means that Motive successfully tracked this body in this
+      // frame. Omitting an invalid body makes downstream pose streams go stale
+      // instead of forwarding Motive's last or unsolved estimate.
+      if ((data->RigidBodies[i].params & 0x01) == 0) {
+        continue;
+      }
       mocap4r2_msgs::msg::RigidBody rb;
 
       rb.rigid_body_name = std::to_string(data->RigidBodies[i].ID);
